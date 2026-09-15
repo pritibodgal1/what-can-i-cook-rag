@@ -1,58 +1,91 @@
 # What Can I Cook? 🍳
 
-Turn the ingredients in your kitchen into your next meal.
+**100% free & local — no paid API, no API key required.**
 
-A RAG-based recipe assistant. You enter the ingredients you have, and the app retrieves
-matching recipes from a local knowledge base, works out what you are missing, and suggests
-substitutes or ways to make the missing ingredient at home (for example, fresh paneer from
-milk and lemon juice).
+Turn the ingredients in your kitchen into your next meal. This is a Retrieval-Augmented
+Generation (RAG) recipe assistant: you describe what you have, and it retrieves genuinely
+matching recipes from a local knowledge base, works out what you're missing, and suggests
+substitutes or how to make a missing ingredient at home — with a grounded, source-cited
+answer written by a local LLM.
+
+## Problem statement
+
+You have a handful of ingredients and no clear idea what to cook, or a recipe calls for
+something you don't have and you don't know if there's a substitute. Generic recipe search
+engines match on exact ingredient lists and don't help with substitutions. This project
+solves both problems locally: semantic search finds recipes that actually fit what you
+have (not just exact keyword matches), and a separate substitution knowledge base is
+searched alongside it so missing ingredients come with real, sourced alternatives.
+
+## Key features
+
+- 🔍 **Ingredient-based recipe recommendations** — describe what you have in plain language
+  or a comma-separated list; semantic search finds the best-fitting recipes, not just exact
+  keyword matches
+- ❌ **Missing ingredient detection** — every matched recipe shows exactly what you have and
+  what you're missing
+- 🔄 **Ingredient substitutions** — missing something? The app looks for a real substitution
+  entry in the knowledge base (e.g. butter → ghee)
+- 🧑‍🍳 **Make-it-yourself suggestions** — some substitutions are full recipes in themselves
+  (e.g. paneer → full-fat milk + lemon juice, with method and notes)
+- 🥗 **Dietary filters** — Any / Vegetarian / Vegan
+- ⏱️ **Cooking time, difficulty & cuisine filters** — Any / Under 15 / 30 / 60 min · Any /
+  Easy / Medium · Any / Indian / Italian / Asian
+- 📚 **Source attribution** — every AI-generated answer lists exactly which retrieved
+  recipes/substitutions it's based on, so the answer is never a black box
+- 🎯 **Relevance threshold** — a minimum cosine-similarity score (see Architecture below)
+  filters out irrelevant matches; if nothing clears it, the app says so honestly instead of
+  forcing a bad recommendation
+
+## Architecture: how the RAG pipeline works
+
+The pipeline runs in two distinct phases: a **one-time indexing step** (build the knowledge
+base into a searchable index) and a **per-query step** (what happens every time you search).
+
+### 1. Knowledge base build (run once, or whenever the CSVs change)
+
+```mermaid
+flowchart LR
+    A["data/recipes.csv<br/>data/substitutions.csv"] --> B["Load & validate<br/>(document_loader.py)"]
+    B --> C["Clean & normalize<br/>(document_loader.py)"]
+    C --> D["Chunk into documents<br/>(chunker.py)"]
+    D --> E["Generate embeddings<br/>(embeddings.py — Sentence Transformers)"]
+    E --> F["Build FAISS indexes<br/>(vector_store.py)"]
+    F --> G[("data/vector_store/")]
+```
+
+### 2. Query flow (every time you search)
+
+```mermaid
+flowchart LR
+    A["User query"] --> B["Embed query<br/>(Sentence Transformers)"]
+    B --> C["FAISS similarity search<br/>(recipes + substitutions)"]
+    C --> D{"Relevance threshold<br/>cosine ≥ 0.2?"}
+    D -- "no" --> E["No results shown<br/>(Ollama is not called)"]
+    D -- "yes" --> F["Apply UI filters<br/>(cuisine / diet / time / difficulty)"]
+    F --> G["Build grounded context<br/>(chatbot.py)"]
+    G --> H["Ollama LLM<br/>(llama3.2:3b)"]
+    H --> I["Grounded answer + source attribution"]
+```
+
+Both FAISS indexes (recipes and substitutions) are searched on every query, so a single
+question like *"I have milk and lemon, can I make paneer?"* can surface both matching
+recipes **and** a relevant substitution entry in the same answer.
 
 ## Tech stack
 
-- **Python 3** + **Streamlit** — UI
-- **pandas** — CSV loading/cleaning
-- **Sentence Transformers** (`all-MiniLM-L6-v2`) — local, free embeddings
-- **FAISS** (`faiss-cpu`) — local vector search
-- **Ollama** running a local model (default `llama3.2:3b`) — free, local answer generation
-- **pytest** — automated tests
+| Component | Library | Version |
+| --- | --- | --- |
+| UI | Streamlit | 1.63.0 |
+| Data handling | pandas | 2.3.3 |
+| Embeddings | Sentence Transformers (`all-MiniLM-L6-v2`) | 6.0.1 |
+| Vector search | FAISS (`faiss-cpu`) | 1.15.0 |
+| Local LLM | Ollama (`llama3.2:3b`) | client 0.6.2 |
+| Config | python-dotenv | 1.0.1 |
+| Testing | pytest | 8.3.5 |
 
-No paid API, no API key, nothing leaves your machine.
-
-## Architecture
-
-```
-User query (ingredients)
-      ↓
-Sentence Transformers  → local, free embeddings
-      ↓
-FAISS                  → local vector search over recipes + substitutions
-      ↓
-Retriever              → top recipes, missing-ingredient detection, substitution lookup
-      ↓
-Ollama (local LLM)     → grounded answer written only from the retrieved context
-      ↓
-Streamlit UI
-```
-
-100% free and local - no paid API, no API key. The local LLM runs through
-[Ollama](https://ollama.com); see Setup below.
-
-Knowledge base (CSV, loaded with pandas):
-
-- `data/recipes.csv` — 30 recipes with ingredients, instructions, cuisine, diet, time, difficulty and meal type.
-- `data/substitutions.csv` — 20 substitution and make-at-home entries.
-
-Modules under `src/`:
-
-| Module | Responsibility |
-| --- | --- |
-| `config.py` | Paths, model names, retrieval settings |
-| `document_loader.py` | Load, validate, clean and normalize the CSV knowledge bases |
-| `chunker.py` | Turn cleaned rows into one RAG document per recipe/substitution, with metadata |
-| `embeddings.py` | Local Sentence Transformers embeddings |
-| `vector_store.py` | Build, persist and search the FAISS index |
-| `retriever.py` | `retrieve()`: semantic (embeddings + FAISS) retrieval used by the UI. Also still holds the earlier keyword-overlap retriever (untouched, unused by the UI now) and `match_ingredients()`, reused for the have/missing breakdown |
-| `chatbot.py` | Grounded prompt assembly and the local-LLM (Ollama) call |
+No paid API, no API key, nothing leaves your machine — embeddings and the LLM both run
+locally.
 
 ## Project structure
 
@@ -66,52 +99,29 @@ what-can-i-cook-rag/
 │   ├── substitutions.csv      20 substitution / make-at-home entries
 │   └── vector_store/          generated by the build step below - gitignored
 ├── src/
-│   ├── config.py
-│   ├── document_loader.py
-│   ├── chunker.py
-│   ├── embeddings.py
-│   ├── vector_store.py
-│   ├── retriever.py
-│   └── chatbot.py
-└── tests/                     pytest suite (see Testing below)
+│   ├── config.py               paths, model names, retrieval settings
+│   ├── document_loader.py      load, validate, clean, normalize the CSVs
+│   ├── chunker.py               turn rows into one RAG document each
+│   ├── embeddings.py            local Sentence Transformers embeddings
+│   ├── vector_store.py          build, persist and search the FAISS indexes
+│   ├── retriever.py             semantic retrieval (retrieve())
+│   └── chatbot.py               grounded prompt assembly + Ollama call
+└── tests/                      103 automated tests (pytest)
 ```
 
-## Current status
+## Dataset / knowledge base
 
-**The full pipeline is live and wired end-to-end:** CSV → chunking → embeddings → FAISS →
-`retriever.retrieve()` → sidebar filters → `chatbot.generate_response()` (Ollama) → the UI.
-`app.py` no longer uses mock or hard-coded results anywhere in the search flow.
+Both knowledge bases are plain CSV files, loaded with pandas — no database required.
 
-- Polished Streamlit UI: ingredient input, sidebar filters, example questions, knowledge base
-  sidebar, RAG explainer - unchanged in look and layout throughout every step below
-- **Document ingestion** (`document_loader.py`, `chunker.py`): validates, cleans and normalizes
-  the CSVs, then turns each recipe/substitution into one `{id, text, metadata}` RAG document
-- **Embeddings + vector store** (`embeddings.py`, `vector_store.py`): local Sentence Transformers
-  embeddings, persisted as separate FAISS indexes for recipes and substitutions
-- **Semantic retrieval** (`retriever.retrieve()`): embeds the query, searches both indexes,
-  merges and ranks by cosine similarity, drops anything below `config.RELEVANCE_THRESHOLD`
-- **Grounded generation** (`chatbot.generate_response()`): builds a labeled context block from
-  the retrieved documents and asks a local LLM (Ollama) to answer using only that context -
-  never called when retrieval returns nothing
-- **UI integration** (`app.py`): runs the above on "Find Recipes" / example clicks / the sidebar
-  search button; applies cuisine/diet/time/difficulty filters to the retrieved recipe metadata;
-  shows the AI's answer with its retrieved sources listed; still uses `retriever.match_ingredients()`
-  for the have/missing breakdown per card, and matches missing ingredients against whatever
-  substitution documents were actually retrieved (not a separate hard-coded lookup)
-- The old keyword-overlap functions (`search_recipes`, `filter_recipes`, `browse_recipes`,
-  `find_substitutions`) remain in `retriever.py`, tested, but are no longer called by the UI
+- **`data/recipes.csv`** — 30 recipes. Columns: `recipe_id`, `recipe_name`, `ingredients`,
+  `instructions`, `cuisine`, `diet`, `cooking_time_minutes`, `difficulty`, `meal_type`.
+- **`data/substitutions.csv`** — 20 substitution / make-at-home entries. Columns:
+  `substitution_id`, `missing_ingredient`, `alternative`, `method`, `notes`.
 
-Known limitations:
+Editing either CSV and rebuilding the index (see below) is enough to change what the app
+knows — no code changes needed.
 
-- The embedding model needs a working local Sentence Transformers/torch setup; if it can't load
-  (e.g. a missing system dependency), the UI shows a clear error instead of crashing - see Setup
-- Substitution recall depends on what the same query retrieved alongside the recipes - if no
-  relevant substitution document was retrieved for a missing ingredient, none is shown, rather
-  than falling back to a separate lookup
-- The cuisine filter's "Asian" bucket currently only covers Chinese recipes; Mediterranean and
-  Continental recipes surface only under "Any"
-
-## Setup
+## Local setup
 
 ```bash
 python -m venv .venv
@@ -124,24 +134,26 @@ copy .env.example .env        # Windows
 # cp .env.example .env        # macOS / Linux
 ```
 
-Answer generation uses a local LLM through [Ollama](https://ollama.com) - free,
-no API key, nothing leaves your machine. Install Ollama, then pull the model
-`.env.example` names (`OLLAMA_MODEL`, default `llama3.2:3b`):
+The embedding model (Sentence Transformers) downloads automatically on first use, as long
+as your machine can run PyTorch (on Windows this needs the
+[Microsoft Visual C++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe) if
+it isn't already installed).
 
-```
+## Ollama setup (required for AI-generated answers)
+
+This project uses [Ollama](https://ollama.com) to run the language model locally — free, no
+API key, nothing sent to any external service.
+
+```bash
+# 1. Install Ollama: https://ollama.com/download
+# 2. Pull the exact model this project uses:
 ollama pull llama3.2:3b
 ```
 
-`.env` only needs to override the defaults in `.env.example` if you want a
-different model or a non-default Ollama host - it's optional otherwise.
+`.env` only needs to override `.env.example`'s defaults if you want a different model or a
+non-default Ollama host — it's optional otherwise.
 
-The embedding model (Sentence Transformers) downloads automatically on first
-use - no setup needed beyond `pip install -r requirements.txt`, as long as
-your machine can run PyTorch (on Windows this needs the
-[Microsoft Visual C++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe)
-if it isn't already installed).
-
-### Build the FAISS index
+## Build the FAISS index
 
 One-time step, before real search works (re-run it whenever the CSVs change):
 
@@ -149,10 +161,10 @@ One-time step, before real search works (re-run it whenever the CSVs change):
 python -c "from src.vector_store import build_knowledge_base_index; build_knowledge_base_index()"
 ```
 
-This embeds every recipe and substitution and persists two FAISS indexes
-under `data/vector_store/` (gitignored - each machine builds its own).
+This embeds every recipe and substitution and persists two FAISS indexes under
+`data/vector_store/` (gitignored — each machine builds its own).
 
-## Run
+## Run the application
 
 ```bash
 streamlit run app.py
@@ -160,28 +172,61 @@ streamlit run app.py
 
 The app opens at http://localhost:8501.
 
-## Testing
+## Run tests
 
 ```bash
 pytest tests/ -v
 ```
 
-A handful of tests need the real embedding model and are skipped (not
-failed) if PyTorch can't load on your machine - see Troubleshooting.
+**Verified result: 103 passed, 0 failed** (with a working local PyTorch install and the
+FAISS index built — see Limitations below for the one system dependency this relies on).
 
-## Troubleshooting
+## Example queries
 
-**"Semantic search isn't available right now" in the app** - the local
-embedding model (PyTorch, via Sentence Transformers) failed to load. On
-Windows this is almost always the missing
-[Microsoft Visual C++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe) -
-install it and restart the app. This is a real, honest error state, not a bug:
-the app deliberately shows it instead of crashing or faking results.
+These are the exact example questions built into the app's UI:
 
-**The AI answer says Ollama isn't available** - install
-[Ollama](https://ollama.com), run `ollama pull llama3.2:3b`, and make sure
-the Ollama app/service is running before searching.
+- *"I have potatoes and onions"*
+- *"What can I make with paneer?"*
+- *"I have rice and vegetables"*
+- *"Give me something quick under 20 minutes"*
 
-**"No recipes found"** - the query didn't retrieve anything relevant given
-the current filters. Try removing a filter, adding another ingredient, or
-setting Cuisine back to "Any".
+Also verified end-to-end during development:
+
+- *"I have paneer, onion and tomato. What can I cook?"* → correctly recommended Palak
+  Paneer with an accurate missing-ingredient list
+- *"I have milk and lemon. Can I make paneer?"* → correctly retrieved and explained the
+  paneer-from-milk-and-lemon-juice substitution
+
+## Limitations / Future improvements
+
+**Current limitations:**
+
+- Embeddings require a working local PyTorch install; if it can't load (e.g. a missing
+  system dependency on Windows), the app shows a clear error instead of crashing
+- Substitution recall depends on what the same query retrieved — if no relevant
+  substitution document was retrieved for a missing ingredient, none is shown, rather than
+  falling back to a separate lookup
+- The cuisine filter's "Asian" option currently only covers Chinese recipes in the dataset;
+  Mediterranean and Continental recipes are only reachable via "Any"
+- Single-turn only — the app does not maintain conversation history between searches
+
+**Future improvements (NOT IMPLEMENTED):**
+
+- Multi-turn conversation / follow-up questions
+- User accounts or saved/favorite recipes
+- Broader cuisine and dietary coverage in the dataset
+- Empirically-calibrated relevance threshold (the current 0.2 cosine-similarity cutoff is a
+  reasonable starting default, not tuned against real usage data)
+
+This project does not include deployment, cloud hosting, or CI/CD — it is designed to be
+run locally.
+
+## License
+
+No license has been added to this repository. All rights reserved by the author; this
+project is provided for assignment/demonstration purposes only, not for reuse or
+redistribution.
+
+---
+
+Repository: [what-can-i-cook-rag](https://github.com/pritibodgal1/what-can-i-cook-rag)

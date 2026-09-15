@@ -1,12 +1,10 @@
 # What Can I Cook? 🍳
 
-**100% free & local — no paid API, no API key required.**
-
-Turn the ingredients in your kitchen into your next meal. This is a Retrieval-Augmented
-Generation (RAG) recipe assistant: you describe what you have, and it retrieves genuinely
-matching recipes from a local knowledge base, works out what you're missing, and suggests
-substitutes or how to make a missing ingredient at home — with a grounded, source-cited
-answer written by a local LLM.
+"What Can I Cook?" is a Retrieval-Augmented Generation (RAG) recipe assistant. It
+recommends recipes based on the ingredients you have, detects what's missing from a
+matched recipe, and provides ingredient substitutions and make-it-yourself suggestions.
+Recommendations are produced through semantic retrieval over a local recipe and
+substitution knowledge base, followed by grounded response generation using a local LLM.
 
 ## Problem statement
 
@@ -16,6 +14,10 @@ engines match on exact ingredient lists and don't help with substitutions. This 
 solves both problems locally: semantic search finds recipes that actually fit what you
 have (not just exact keyword matches), and a separate substitution knowledge base is
 searched alongside it so missing ingredients come with real, sourced alternatives.
+
+## Demo
+
+🎥 **Watch the application demo:** [What Can I Cook? — Demo Video](YOUR_VIDEO_LINK)
 
 ## Key features
 
@@ -84,9 +86,6 @@ recipes **and** a relevant substitution entry in the same answer.
 | Config | python-dotenv | 1.0.1 |
 | Testing | pytest | 8.3.5 |
 
-No paid API, no API key, nothing leaves your machine — embeddings and the LLM both run
-locally.
-
 ## Project structure
 
 ```
@@ -141,8 +140,9 @@ it isn't already installed).
 
 ## Ollama setup (required for AI-generated answers)
 
-This project uses [Ollama](https://ollama.com) to run the language model locally — free, no
-API key, nothing sent to any external service.
+This project uses [Ollama](https://ollama.com) to serve the language model locally. Ollama
+exposes a local HTTP API (default `http://localhost:11434`) that `src/chatbot.py` calls
+through the `ollama` Python client.
 
 ```bash
 # 1. Install Ollama: https://ollama.com/download

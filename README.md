@@ -17,7 +17,8 @@ searched alongside it so missing ingredients come with real, sourced alternative
 
 ## Demo
 
-🎥 **Watch the application demo:** [What Can I Cook? — Demo Video](YOUR_VIDEO_LINK)
+🎥 **Watch the application demo:** https://www.awesomescreenshot.com/video/56522781?key=84e428d07d1842c37f8c8ea32c3b5252
+
 
 ## Key features
 
